@@ -33,7 +33,7 @@ class Application {
 #endif
 
     const std::vector<const char*> ValidationLayers = {"VK_LAYER_KHRONOS_validation"};
-
+    const std::vector<const char*> RequiredDeviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     Application();
     ~Application();
 
@@ -46,13 +46,19 @@ class Application {
 
     void CreateInstance();
     void SetupDebugMessenger();
+    void CreateSurface();
+    void PickPhysicalDevice();
 
     std::vector<const char*> GetRequiredInstanceExtensions();
 
     // Loaded extension functions
     void vkCreateDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerCreateInfoEXT* createInfo,
         VkAllocationCallbacks* allocator, VkDebugUtilsMessengerEXT* debugMessenger);
-    void vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, VkAllocationCallbacks* allocator);
+    void vkDestroyDebugUtilsMessengerEXT(
+        VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, VkAllocationCallbacks* allocator);
+
+    // Helpers
+    bool IsPhysicalDeviceSuitable(const VkPhysicalDevice& device);
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
@@ -61,6 +67,8 @@ class Application {
   private:
     Window* m_Window = nullptr;
 
-    VkInstance m_Instance;
-    VkDebugUtilsMessengerEXT m_DebugMessenger;
+    VkInstance m_Instance = nullptr;
+    VkDebugUtilsMessengerEXT m_DebugMessenger = nullptr;
+    VkSurfaceKHR m_Surface = nullptr;
+    VkPhysicalDevice m_PhysicalDevice = nullptr;
 };
