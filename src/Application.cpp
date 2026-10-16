@@ -27,8 +27,10 @@ void Application::InitVulkan() {
     SetupDebugMessenger();
     CreateSurface();
     PickPhysicalDevice();
+    CreateLogicalDevice();
 }
 void Application::Shutdown() {
+    vkDestroyDevice(m_Device, nullptr);
     vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
     vkDestroyDebugUtilsMessengerEXT(m_Instance, m_DebugMessenger, nullptr);
     vkDestroyInstance(m_Instance, nullptr);
@@ -147,6 +149,77 @@ void Application::PickPhysicalDevice() {
             }
         }
     }
+}
+void Application::CreateLogicalDevice() {
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &queueFamilyCount, queueFamilies.data());
+    queueFamilies.resize(queueFamilyCount);
+
+    uint32_t queueIndex = ~0;
+    for (uint32_t qfpIndex = 0; qfpIndex < queueFamilies.size(); ++qfpIndex) {
+        VkBool32 supportsPresent = VK_FALSE;
+        VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(m_PhysicalDevice, qfpIndex, m_Surface, &supportsPresent));
+        if ((queueFamilies[qfpIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT) && supportsPresent) {
+            queueIndex = qfpIndex;
+            break;
+        }
+    }
+
+    if (queueIndex == ~0) {
+        throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+    }
+
+    m_QueueIndex = queueIndex;
+
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT dynamicStateFeatures = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
+        .extendedDynamicState = VK_TRUE,
+    };
+
+    VkPhysicalDeviceVulkan13Features vulkan13Features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext = &dynamicStateFeatures,
+        .synchronization2 = VK_TRUE,
+        .dynamicRendering = VK_TRUE
+    };
+
+    VkPhysicalDeviceVulkan11Features vulkan11Features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &vulkan13Features,
+        .shaderDrawParameters = VK_TRUE
+    };
+
+    VkPhysicalDeviceFeatures2 features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &vulkan11Features,
+        .features = {
+            .sampleRateShading = VK_TRUE,
+            .samplerAnisotropy = true
+        },
+    };
+
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queueCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = m_QueueIndex,
+        .queueCount = 1,
+        .pQueuePriorities = &queuePriority
+    };
+
+    VkDeviceCreateInfo deviceInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = &features,
+        .queueCreateInfoCount = 1,
+        .pQueueCreateInfos = &queueCreateInfo,
+        .enabledExtensionCount = static_cast<uint32_t>(RequiredDeviceExtensions.size()),
+        .ppEnabledExtensionNames = RequiredDeviceExtensions.data(),
+    };
+
+    VK_CHECK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_Device));
+    vkGetDeviceQueue(m_Device, m_QueueIndex, 0, &m_Queue);
 }
 std::vector<const char*> Application::GetRequiredInstanceExtensions() {
     uint32_t glfwExtensionCount = 0;

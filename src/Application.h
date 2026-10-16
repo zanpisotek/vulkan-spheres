@@ -48,6 +48,7 @@ class Application {
     void SetupDebugMessenger();
     void CreateSurface();
     void PickPhysicalDevice();
+    void CreateLogicalDevice();
 
     std::vector<const char*> GetRequiredInstanceExtensions();
 
@@ -71,4 +72,7 @@ class Application {
     VkDebugUtilsMessengerEXT m_DebugMessenger = nullptr;
     VkSurfaceKHR m_Surface = nullptr;
     VkPhysicalDevice m_PhysicalDevice = nullptr;
+    VkDevice m_Device = nullptr;
+    uint32_t m_QueueIndex;
+    VkQueue m_Queue = nullptr;
 };
