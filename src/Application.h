@@ -49,6 +49,14 @@ class Application {
     void CreateSurface();
     void PickPhysicalDevice();
     void CreateLogicalDevice();
+    VkSurfaceFormatKHR ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+    VkPresentModeKHR ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+    VkExtent2D ChoosSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
+    uint32_t ChooseSwapMinImageCount(const VkSurfaceCapabilitiesKHR& capabilities);
+    void CreateSwapChain();
+    void RecreateSwapChain();
+    void CleanupSwapChain();
+    void CreateImageViews();
 
     std::vector<const char*> GetRequiredInstanceExtensions();
 
@@ -60,6 +68,8 @@ class Application {
 
     // Helpers
     bool IsPhysicalDeviceSuitable(const VkPhysicalDevice& device);
+    VkImageView CreateImageView(
+        const VkImage& image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
@@ -75,4 +85,9 @@ class Application {
     VkDevice m_Device = nullptr;
     uint32_t m_QueueIndex;
     VkQueue m_Queue = nullptr;
+    VkSurfaceFormatKHR m_SwapChainSurfaceFormat;
+    VkExtent2D m_SwapChainExtent;
+    VkSwapchainKHR m_SwapChain = nullptr;
+    std::vector<VkImage> m_SwapChainImages;
+    std::vector<VkImageView> m_SwapChainImageViews;
 };

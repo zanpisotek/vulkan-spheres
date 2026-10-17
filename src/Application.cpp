@@ -4,6 +4,7 @@
 #include "Application.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 #include <iostream>
 #include <ostream>
@@ -28,8 +29,11 @@ void Application::InitVulkan() {
     CreateSurface();
     PickPhysicalDevice();
     CreateLogicalDevice();
+    CreateSwapChain();
+    CreateImageViews();
 }
 void Application::Shutdown() {
+    CleanupSwapChain();
     vkDestroyDevice(m_Device, nullptr);
     vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
     vkDestroyDebugUtilsMessengerEXT(m_Instance, m_DebugMessenger, nullptr);
@@ -179,35 +183,26 @@ void Application::CreateLogicalDevice() {
         .extendedDynamicState = VK_TRUE,
     };
 
-    VkPhysicalDeviceVulkan13Features vulkan13Features = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+    VkPhysicalDeviceVulkan13Features vulkan13Features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
         .pNext = &dynamicStateFeatures,
         .synchronization2 = VK_TRUE,
-        .dynamicRendering = VK_TRUE
-    };
+        .dynamicRendering = VK_TRUE};
 
-    VkPhysicalDeviceVulkan11Features vulkan11Features = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+    VkPhysicalDeviceVulkan11Features vulkan11Features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
         .pNext = &vulkan13Features,
-        .shaderDrawParameters = VK_TRUE
-    };
+        .shaderDrawParameters = VK_TRUE};
 
     VkPhysicalDeviceFeatures2 features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = &vulkan11Features,
-        .features = {
-            .sampleRateShading = VK_TRUE,
-            .samplerAnisotropy = true
-        },
+        .features = {.sampleRateShading = VK_TRUE, .samplerAnisotropy = true},
     };
 
     float queuePriority = 1.0f;
-    VkDeviceQueueCreateInfo queueCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+    VkDeviceQueueCreateInfo queueCreateInfo = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         .queueFamilyIndex = m_QueueIndex,
         .queueCount = 1,
-        .pQueuePriorities = &queuePriority
-    };
+        .pQueuePriorities = &queuePriority};
 
     VkDeviceCreateInfo deviceInfo = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -220,6 +215,131 @@ void Application::CreateLogicalDevice() {
 
     VK_CHECK(vkCreateDevice(m_PhysicalDevice, &deviceInfo, nullptr, &m_Device));
     vkGetDeviceQueue(m_Device, m_QueueIndex, 0, &m_Queue);
+}
+VkSurfaceFormatKHR Application::ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
+    assert(!availableFormats.empty());
+
+    const auto formatIt = std::ranges::find_if(availableFormats, [](const auto& format) {
+        return format.format == VK_FORMAT_R8G8B8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    });
+
+    return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
+}
+VkPresentModeKHR Application::ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+    // assert that at least fifo-khr is supported
+    assert(std::ranges::any_of(availablePresentModes, [](auto presentMode) {
+        return presentMode == VK_PRESENT_MODE_FIFO_KHR;
+    }));
+
+    VkPresentModeKHR chosenPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+    for (const auto presentMode : availablePresentModes) {
+        if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            chosenPresentMode = presentMode;
+        }
+    }
+    return chosenPresentMode;
+}
+VkExtent2D Application::ChoosSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+        return capabilities.currentExtent;
+    }
+
+    int width, height;
+    glfwGetFramebufferSize(m_Window->GetHandle(), &width, &height);
+
+    return {
+        std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+        std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
+    };
+}
+uint32_t Application::ChooseSwapMinImageCount(const VkSurfaceCapabilitiesKHR& capabilities) {
+    auto minImageCount = std::max(3u, capabilities.minImageCount);
+    if ((capabilities.maxImageCount > 0) && (capabilities.maxImageCount < minImageCount)) {
+        minImageCount = capabilities.maxImageCount;
+    }
+
+    return minImageCount;
+}
+void Application::CreateSwapChain() {
+    VkSurfaceCapabilitiesKHR surfaceCapabilities;
+    VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicalDevice, m_Surface, &surfaceCapabilities));
+    m_SwapChainExtent = ChoosSwapExtent(surfaceCapabilities);
+    uint32_t minImageCount = ChooseSwapMinImageCount(surfaceCapabilities);
+
+    uint32_t surfaceFormatCount = 0;
+    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(m_PhysicalDevice, m_Surface, &surfaceFormatCount, nullptr));
+
+    std::vector<VkSurfaceFormatKHR> availableFormats(surfaceFormatCount);
+    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(
+        m_PhysicalDevice, m_Surface, &surfaceFormatCount, availableFormats.data()));
+    availableFormats.resize(surfaceFormatCount);
+
+    m_SwapChainSurfaceFormat = ChooseSwapSurfaceFormat(availableFormats);
+
+    uint32_t presentModeCount = 0;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(m_PhysicalDevice, m_Surface, &presentModeCount, nullptr);
+
+    std::vector<VkPresentModeKHR> availablePresentModes(presentModeCount);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(
+        m_PhysicalDevice, m_Surface, &presentModeCount, availablePresentModes.data());
+    availablePresentModes.resize(presentModeCount);
+
+    VkSwapchainCreateInfoKHR swapChainCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = m_Surface,
+        .minImageCount = minImageCount,
+        .imageFormat = m_SwapChainSurfaceFormat.format,
+        .imageColorSpace = m_SwapChainSurfaceFormat.colorSpace,
+        .imageExtent = m_SwapChainExtent,
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .preTransform = surfaceCapabilities.currentTransform,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = ChooseSwapPresentMode(availablePresentModes),
+        .clipped = true,
+        .oldSwapchain = nullptr,
+    };
+
+    VK_CHECK(vkCreateSwapchainKHR(m_Device, &swapChainCreateInfo, nullptr, &m_SwapChain));
+
+    uint32_t imageCount = 0;
+    VK_CHECK(vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &imageCount, nullptr));
+
+    m_SwapChainImages.resize(imageCount);
+    VK_CHECK(vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &imageCount, m_SwapChainImages.data()));
+    m_SwapChainImages.resize(imageCount);
+}
+void Application::RecreateSwapChain() {
+    int width, height;
+    glfwGetFramebufferSize(m_Window->GetHandle(), &width, &height);
+
+    // Minimization
+    while ((width == 0 || height == 0) && !glfwWindowShouldClose(m_Window->GetHandle())) {
+        glfwGetFramebufferSize(m_Window->GetHandle(), &width, &height);
+        glfwWaitEvents();
+    }
+    VK_CHECK(vkDeviceWaitIdle(m_Device));
+
+    CleanupSwapChain();
+
+    CreateSwapChain();
+}
+void Application::CleanupSwapChain() {
+    vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
+    m_SwapChain = nullptr;
+
+    for (auto& imageView : m_SwapChainImageViews) {
+        vkDestroyImageView(m_Device, imageView, nullptr);
+    }
+}
+void Application::CreateImageViews() {
+    assert(m_SwapChainImageViews.empty());
+
+    for (const auto& image : m_SwapChainImages) {
+        m_SwapChainImageViews.push_back(
+            CreateImageView(image, m_SwapChainSurfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, 1));
+    }
 }
 std::vector<const char*> Application::GetRequiredInstanceExtensions() {
     uint32_t glfwExtensionCount = 0;
@@ -318,6 +438,28 @@ bool Application::IsPhysicalDeviceSuitable(const VkPhysicalDevice& device) {
                                     dynamicStateFeatures.extendedDynamicState;
 
     return supportsVulkan1_3 && supportsGraphicsAndPresent && supportsRequiredFeatures && supportsAllExtensions;
+}
+VkImageView Application::CreateImageView(
+    const VkImage& image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels) {
+
+    VkImageViewCreateInfo viewInfo = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = format,
+        .subresourceRange =
+            {
+                .aspectMask = aspectFlags,
+                .baseMipLevel = 0,
+                .levelCount = mipLevels,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+    };
+    VkImageView imageView;
+    VK_CHECK(vkCreateImageView(m_Device, &viewInfo, nullptr, &imageView));
+
+    return imageView;
 }
 
 
