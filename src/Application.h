@@ -3,9 +3,11 @@
 //
 
 #pragma once
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include "Window.h"
 
+#include <array>
 #include <vector>
 #include <stdexcept>
 #include <string>
@@ -24,6 +26,27 @@
     } while (false)
 // clang-format on
 
+struct Vertex {
+    glm::vec3 Position;
+    glm::vec3 Color;
+    glm::vec2 TexCoord;
+
+    static VkVertexInputBindingDescription GetBindingDescription() {
+        return {
+            .binding = 0,
+            .stride = sizeof(Vertex),
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+        };
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() {
+        return {{
+            {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, Position)},
+            {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, Color)},
+            {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, TexCoord)},
+        }};
+    }
+};
 class Application {
   public:
 #ifdef DEBUG
@@ -57,6 +80,8 @@ class Application {
     void RecreateSwapChain();
     void CleanupSwapChain();
     void CreateImageViews();
+    void CreateDescriptorSetLayout();
+    void CreateGraphicsPipeline();
 
     std::vector<const char*> GetRequiredInstanceExtensions();
 
@@ -70,6 +95,10 @@ class Application {
     bool IsPhysicalDeviceSuitable(const VkPhysicalDevice& device);
     VkImageView CreateImageView(
         const VkImage& image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
+    std::vector<char> ReadFile(const std::string& filename);
+    VkShaderModule CreateShaderModule(const std::vector<char>& code);
+    VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+    VkFormat FindDepthFormat();
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
@@ -90,4 +119,7 @@ class Application {
     VkSwapchainKHR m_SwapChain = nullptr;
     std::vector<VkImage> m_SwapChainImages;
     std::vector<VkImageView> m_SwapChainImageViews;
+    VkDescriptorSetLayout m_DescriptorSetLayout = nullptr;
+    VkPipelineLayout m_PipelineLayout = nullptr;
+    VkPipeline m_GraphicsPipeline = nullptr;
 };
