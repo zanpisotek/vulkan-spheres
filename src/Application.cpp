@@ -31,6 +31,23 @@ void Application::Run() {
     }
     VK_CHECK(vkDeviceWaitIdle(m_Device));
 }
+// This function prepares one frame, submits it's rendering work to the GPU, and requests presentation of the resulting image
+// It also coordinates resource reuse so the CPU doesn't overwrites something that the GPU is still using
+// The key is that the CPU calling these functions and GPU executing the recorded commands happen asynchronously.
+// Submitting the work does not mean that the work has already finished
+// m_FrameIndex - a reusable frame slot: command buffer, uniform buffer, fence, acquisition semaphore
+// imageIndex - the swap chain image to render to
+// m_InFlightFences[m_FrameIndex] - the previous GPU submission using this frame slot has completed (CPU waits)
+// m_PresentCompleteSemaphores[m_FrameIndex] - the acquired image is ready for rendering access
+// m_RenderFinishedSemaphores[imageIndex] - Rendering has finished, so presentation can use the image
+// Overall sequence is:
+// 1. Wait until this frame slot is safe to reuse.
+// 2. Acquire swap chain image
+// 3. Prepare commands and uniform data
+// 4. Submit rendering, waiting for image availability
+// 5. Request presentation, waiting for rendering completion
+// 6. Move to the next frame slot
+// -
 void Application::DrawFrame() {
     VkResult fenceResult = vkWaitForFences(m_Device, 1, &m_InFlightFences[m_FrameIndex], VK_TRUE, UINT64_MAX);
     if (fenceResult != VK_SUCCESS) {
@@ -739,6 +756,10 @@ void Application::CreateVertexBuffer() {
     vkFreeMemory(m_Device, stagingBufferMemory, nullptr);
 }
 void Application::GenerateSphere(float radius, uint32_t sectors, uint32_t stacks) {
+    assert(radius > 0.0f);
+    assert(sectors >= 3);
+    assert(stacks >= 2);
+
     m_Vertices.clear();
     m_Indices.clear();
 
