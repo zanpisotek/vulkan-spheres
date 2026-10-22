@@ -111,6 +111,7 @@ void Application::InitVulkan() {
     CreateTextureImage();
     CreateTextureImageView();
     CreateTextureSampler();
+    GenerateSphere(0.5, 64, 32);
     CreateVertexBuffer();
     CreateIndexBuffer();
     CreateUniformBuffers();
@@ -736,6 +737,51 @@ void Application::CreateVertexBuffer() {
 
     vkDestroyBuffer(m_Device, stagingBuffer, nullptr);
     vkFreeMemory(m_Device, stagingBufferMemory, nullptr);
+}
+void Application::GenerateSphere(float radius, uint32_t sectors, uint32_t stacks) {
+    m_Vertices.clear();
+    m_Indices.clear();
+
+    static constexpr float pi = std::numbers::pi_v<float>;
+
+    for (uint32_t stack = 0; stack <= stacks; ++stack) {
+        const float v = static_cast<float>(stack) / stacks;
+        const float theta = v * pi;
+
+        const float ringRadius = radius * std::sin(theta);
+        const float y = radius * std::cos(theta);
+
+        for (uint32_t sector = 0; sector <= sectors; ++sector) {
+            const float u = static_cast<float>(sector) / sectors;
+            const float phi = u * 2.0f * pi;
+
+            const float x = ringRadius * std::cos(phi);
+            const float z = ringRadius * std::sin(phi);
+
+            m_Vertices.push_back({{x, y, z}, {1.0f, 1.0f, 1.0f}, {u, v}});
+        }
+    }
+    const uint32_t rowSize = sectors + 1;
+    for (uint32_t stack = 0; stack < stacks; ++stack) {
+        for (uint32_t sector = 0; sector < sectors; ++sector) {
+            const uint32_t a = stack * rowSize + sector;
+            const uint32_t b = a + rowSize;
+
+            // skip degenerate triangle north pole
+            if (stack != 0) {
+                m_Indices.push_back(a);
+                m_Indices.push_back(a + 1);
+                m_Indices.push_back(b);
+            }
+
+            // skip degenerate triangle south pole
+            if (stack != stacks - 1) {
+                m_Indices.push_back(a + 1);
+                m_Indices.push_back(b + 1);
+                m_Indices.push_back(b);
+            }
+        }
+    }
 }
 void Application::CreateIndexBuffer() {
     VkDeviceSize bufferSize = sizeof(m_Indices[0]) * m_Indices.size();
