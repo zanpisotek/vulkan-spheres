@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include "Window.h"
+#include "Object.h"
 
 #include <array>
 #include <vector>
@@ -26,6 +27,7 @@
     } while (false)
 // clang-format on
 
+// mat4 requires 16-byte alignment
 struct UniformBufferObject {
     alignas(16) glm::mat4 Model;
     alignas(16) glm::mat4 View;
@@ -56,6 +58,7 @@ class Application {
   public:
     const std::string TEXTURE_PATH = "assets/textures/texture.jpg";
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+    static constexpr uint32_t NUM_SPHERES = 5;
 #ifdef DEBUG
     static constexpr bool EnableValidationLayers = true;
 #else
@@ -79,6 +82,7 @@ class Application {
     void CreateInstance();
     void SetupDebugMessenger();
     void CreateSurface();
+    void SetupGameObjects();
     void PickPhysicalDevice();
     void CreateLogicalDevice();
     VkSurfaceFormatKHR ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
@@ -160,7 +164,7 @@ class Application {
 
     VkSampleCountFlagBits GetMaxUsableSampleCount();
 
-    void UpdateUniformBuffer(uint32_t currentImage);
+    void UpdateUniformBuffers(uint32_t currentImage);
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
@@ -206,11 +210,7 @@ class Application {
     VkDeviceMemory m_VertexBufferMemory = nullptr;
     VkBuffer m_IndexBuffer = nullptr;
     VkDeviceMemory m_IndexBufferMemory = nullptr;
-    std::vector<VkBuffer> m_UniformBuffers;
-    std::vector<VkDeviceMemory> m_UniformBuffersMemory;
-    std::vector<void*> m_UniformBuffersMapped;
     VkDescriptorPool m_DescriptorPool = nullptr;
-    std::vector<VkDescriptorSet> m_DescriptorSets;
 
     std::vector<VkSemaphore> m_PresentCompleteSemaphores;
     std::vector<VkSemaphore> m_RenderFinishedSemaphores;
@@ -222,4 +222,5 @@ class Application {
     std::vector<Vertex> m_Vertices;
     std::vector<uint32_t> m_Indices;
 
+    std::array<Object, NUM_SPHERES> m_Spheres;
 };

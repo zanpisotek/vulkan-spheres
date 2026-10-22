@@ -31,16 +31,14 @@ void Application::Run() {
     }
     VK_CHECK(vkDeviceWaitIdle(m_Device));
 }
-// This function prepares one frame, submits it's rendering work to the GPU, and requests presentation of the resulting image
-// It also coordinates resource reuse so the CPU doesn't overwrites something that the GPU is still using
-// The key is that the CPU calling these functions and GPU executing the recorded commands happen asynchronously.
-// Submitting the work does not mean that the work has already finished
-// m_FrameIndex - a reusable frame slot: command buffer, uniform buffer, fence, acquisition semaphore
-// imageIndex - the swap chain image to render to
-// m_InFlightFences[m_FrameIndex] - the previous GPU submission using this frame slot has completed (CPU waits)
-// m_PresentCompleteSemaphores[m_FrameIndex] - the acquired image is ready for rendering access
-// m_RenderFinishedSemaphores[imageIndex] - Rendering has finished, so presentation can use the image
-// Overall sequence is:
+// This function prepares one frame, submits it's rendering work to the GPU, and requests presentation of the resulting
+// image It also coordinates resource reuse so the CPU doesn't overwrites something that the GPU is still using The key
+// is that the CPU calling these functions and GPU executing the recorded commands happen asynchronously. Submitting the
+// work does not mean that the work has already finished m_FrameIndex - a reusable frame slot: command buffer, uniform
+// buffer, fence, acquisition semaphore imageIndex - the swap chain image to render to m_InFlightFences[m_FrameIndex] -
+// the previous GPU submission using this frame slot has completed (CPU waits) m_PresentCompleteSemaphores[m_FrameIndex]
+// - the acquired image is ready for rendering access m_RenderFinishedSemaphores[imageIndex] - Rendering has finished,
+// so presentation can use the image Overall sequence is:
 // 1. Wait until this frame slot is safe to reuse.
 // 2. Acquire swap chain image
 // 3. Prepare commands and uniform data
@@ -73,7 +71,7 @@ void Application::DrawFrame() {
     VK_CHECK(vkResetCommandBuffer(m_CommandBuffers[m_FrameIndex], 0));
     RecordCommandBuffer(imageIndex);
 
-    UpdateUniformBuffer(m_FrameIndex);
+    UpdateUniformBuffers(m_FrameIndex);
 
     VkPipelineStageFlags waitDestinationStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -116,6 +114,7 @@ void Application::InitVulkan() {
     CreateInstance();
     SetupDebugMessenger();
     CreateSurface();
+    SetupGameObjects();
     PickPhysicalDevice();
     CreateLogicalDevice();
     CreateSwapChain();
@@ -146,11 +145,12 @@ void Application::Shutdown() {
         vkDestroyFence(m_Device, m_InFlightFences[i], nullptr);
     }
     vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
-    for (auto& uniformBuffer : m_UniformBuffers) {
-        vkDestroyBuffer(m_Device, uniformBuffer, nullptr);
-    }
-    for (auto& uniformBufferMemory : m_UniformBuffersMemory) {
-        vkFreeMemory(m_Device, uniformBufferMemory, nullptr);
+    for (auto& sphere : m_Spheres) {
+        for (size_t i = 0; i < sphere.UniformBuffers.size(); ++i) {
+            vkUnmapMemory(m_Device, sphere.UniformBuffersMemory[i]);
+            vkDestroyBuffer(m_Device, sphere.UniformBuffers[i], nullptr);
+            vkFreeMemory(m_Device, sphere.UniformBuffersMemory[i], nullptr);
+        }
     }
     vkDestroyBuffer(m_Device, m_IndexBuffer, nullptr);
     vkFreeMemory(m_Device, m_IndexBufferMemory, nullptr);
@@ -258,6 +258,28 @@ void Application::CreateSurface() {
         throw std::runtime_error("Failed to create window surface");
     }
 }
+void Application::SetupGameObjects() {
+    m_Spheres[0].Position = {0.0f, -1.5f, 0.0f};
+    m_Spheres[0].Rotation = {0.0f, 0.0f, 0.0f};
+    m_Spheres[0].Scale = glm::vec3(1.5f);
+
+    m_Spheres[1].Position = {3.0f, -1.5f, -1.5f};
+    m_Spheres[1].Rotation = {0.0f, 0.0f, 0.0f};
+    m_Spheres[1].Scale = glm::vec3(1.5f);
+
+    m_Spheres[2].Position = {-3.0f, -1.5f, -1.5f};
+    m_Spheres[2].Rotation = {0.0f, 0.0f, 0.0f};
+    m_Spheres[2].Scale = glm::vec3(1.5f);
+
+    m_Spheres[3].Position = {1.5f, -1.5f, -3.0f};
+    m_Spheres[3].Rotation = {0.0f, 0.0f, 0.0f};
+    m_Spheres[3].Scale = glm::vec3(1.5f);
+
+    m_Spheres[4].Position = {-1.5f, -1.5f, -3.0f};
+    m_Spheres[4].Rotation = {0.0f, 0.0f, 0.0f};
+    m_Spheres[4].Scale = glm::vec3(1.5f);
+}
+
 void Application::PickPhysicalDevice() {
     uint32_t physicalDeviceCount = 0;
     VK_CHECK(vkEnumeratePhysicalDevices(m_Instance, &physicalDeviceCount, nullptr));
@@ -824,28 +846,35 @@ void Application::CreateIndexBuffer() {
     vkFreeMemory(m_Device, stagingBufferMemory, nullptr);
 }
 void Application::CreateUniformBuffers() {
-    m_UniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+    const VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-        auto [buffer, bufferMemory] = CreateBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        m_UniformBuffers.push_back(buffer);
-        m_UniformBuffersMemory.push_back(bufferMemory);
-        VK_CHECK(vkMapMemory(m_Device, bufferMemory, 0, bufferSize, 0, &m_UniformBuffersMapped[i]));
+    for (auto& sphere : m_Spheres) {
+        sphere.UniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        sphere.UniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        sphere.UniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            auto [buffer, memory] = CreateBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+            sphere.UniformBuffers[i] = buffer;
+            sphere.UniformBuffersMemory[i] = memory;
+
+            VK_CHECK(vkMapMemory(m_Device, memory, 0, bufferSize, 0, &sphere.UniformBuffersMapped[i]));
+        }
     }
 }
 void Application::CreateDescriptorPool() {
     std::array<VkDescriptorPoolSize, 2> poolSize{};
     poolSize[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize[0].descriptorCount = NUM_SPHERES * MAX_FRAMES_IN_FLIGHT;
     poolSize[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    poolSize[1].descriptorCount = NUM_SPHERES * MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo poolInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = MAX_FRAMES_IN_FLIGHT,
+        .maxSets = NUM_SPHERES * MAX_FRAMES_IN_FLIGHT,
         .poolSizeCount = static_cast<uint32_t>(poolSize.size()),
         .pPoolSizes = poolSize.data(),
     };
@@ -853,50 +882,52 @@ void Application::CreateDescriptorPool() {
     VK_CHECK(vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_DescriptorPool));
 }
 void Application::CreateDescriptorSets() {
-    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_DescriptorSetLayout);
-    m_DescriptorSets.resize(layouts.size());
+    for (auto& sphere : m_Spheres) {
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_DescriptorSetLayout);
+        sphere.DescriptorSets.resize(layouts.size());
 
-    VkDescriptorSetAllocateInfo allocInfo = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = m_DescriptorPool,
-        .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-        .pSetLayouts = layouts.data(),
-    };
-
-    VK_CHECK(vkAllocateDescriptorSets(m_Device, &allocInfo, m_DescriptorSets.data()));
-
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDescriptorBufferInfo bufferInfo = {
-            .buffer = m_UniformBuffers[i],
-            .offset = 0,
-            .range = sizeof(UniformBufferObject),
+        VkDescriptorSetAllocateInfo allocInfo = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = m_DescriptorPool,
+            .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+            .pSetLayouts = layouts.data(),
         };
 
-        VkDescriptorImageInfo imageInfo = {
-            .sampler = m_TextureSampler,
-            .imageView = m_TextureImageView,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
+        VK_CHECK(vkAllocateDescriptorSets(m_Device, &allocInfo, sphere.DescriptorSets.data()));
 
-        std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
-        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        descriptorWrites[0].dstSet = m_DescriptorSets[i];
-        descriptorWrites[0].dstBinding = 0;
-        descriptorWrites[0].dstArrayElement = 0;
-        descriptorWrites[0].descriptorCount = 1;
-        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWrites[0].pBufferInfo = &bufferInfo;
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            VkDescriptorBufferInfo bufferInfo = {
+                .buffer = sphere.UniformBuffers[i],
+                .offset = 0,
+                .range = sizeof(UniformBufferObject),
+            };
 
-        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        descriptorWrites[1].dstSet = m_DescriptorSets[i];
-        descriptorWrites[1].dstBinding = 1;
-        descriptorWrites[1].dstArrayElement = 0;
-        descriptorWrites[1].descriptorCount = 1;
-        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptorWrites[1].pImageInfo = &imageInfo;
+            VkDescriptorImageInfo imageInfo = {
+                .sampler = m_TextureSampler,
+                .imageView = m_TextureImageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
 
-        vkUpdateDescriptorSets(
-            m_Device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+            std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+            descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            descriptorWrites[0].dstSet = sphere.DescriptorSets[i];
+            descriptorWrites[0].dstBinding = 0;
+            descriptorWrites[0].dstArrayElement = 0;
+            descriptorWrites[0].descriptorCount = 1;
+            descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrites[0].pBufferInfo = &bufferInfo;
+
+            descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            descriptorWrites[1].dstSet = sphere.DescriptorSets[i];
+            descriptorWrites[1].dstBinding = 1;
+            descriptorWrites[1].dstArrayElement = 0;
+            descriptorWrites[1].descriptorCount = 1;
+            descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[1].pImageInfo = &imageInfo;
+
+            vkUpdateDescriptorSets(
+                m_Device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+        }
     }
 }
 void Application::CreateCommandBuffers() {
@@ -977,26 +1008,28 @@ void Application::RecordCommandBuffer(uint32_t imageIndex) {
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_VertexBuffer, &offset);
     vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer, offset, VK_INDEX_TYPE_UINT32);
 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1,
-        &m_DescriptorSets[m_FrameIndex], 0, nullptr);
+    for (const auto& sphere : m_Spheres) {
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1,
+            &sphere.DescriptorSets[m_FrameIndex], 0, nullptr);
 
-    VkViewport viewport = {
-        .x = 0.0f,
-        .y = static_cast<float>(m_SwapChainExtent.height),
-        .width = static_cast<float>(m_SwapChainExtent.width),
-        .height = -static_cast<float>(m_SwapChainExtent.height),
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f,
-    };
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        VkViewport viewport = {
+            .x = 0.0f,
+            .y = static_cast<float>(m_SwapChainExtent.height),
+            .width = static_cast<float>(m_SwapChainExtent.width),
+            .height = -static_cast<float>(m_SwapChainExtent.height),
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f,
+        };
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
-    VkRect2D scissor = {
-        .offset = {0, 0},
-        .extent = m_SwapChainExtent,
-    };
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        VkRect2D scissor = {
+            .offset = {0, 0},
+            .extent = m_SwapChainExtent,
+        };
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(m_Indices.size()), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(m_Indices.size()), 1, 0, 0, 0);
+    }
 
     vkCmdEndRendering(commandBuffer);
 
@@ -1493,19 +1526,23 @@ VkSampleCountFlagBits Application::GetMaxUsableSampleCount() {
 
     return VK_SAMPLE_COUNT_1_BIT;
 }
-void Application::UpdateUniformBuffer(uint32_t currentImage) {
+void Application::UpdateUniformBuffers(uint32_t currentImage) {
     static auto startTime = std::chrono::high_resolution_clock::now();
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+    glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 4.0f, 6.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
-    UniformBufferObject ubo{};
-    ubo.Model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.View = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.Projection = glm::perspective(glm::radians(45.0f),
-        static_cast<float>(m_SwapChainExtent.width) / static_cast<float>(m_SwapChainExtent.height), 0.1f, 10.0f);
+    glm::mat4 proj = glm::perspective(glm::radians(45.0f),
+        static_cast<float>(m_SwapChainExtent.width) / static_cast<float>(m_SwapChainExtent.height), 0.1f, 20.0f);
 
-    memcpy(m_UniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+    for (auto& sphere : m_Spheres) {
+
+        glm::mat4 model = sphere.GetModelMatrix();
+
+        UniformBufferObject ubo{.Model = model, .View = view, .Projection = proj};
+        memcpy(sphere.UniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+    }
 }
 
 
