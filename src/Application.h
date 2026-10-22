@@ -26,6 +26,11 @@
     } while (false)
 // clang-format on
 
+struct UniformBufferObject {
+    alignas(16) glm::mat4 Model;
+    alignas(16) glm::mat4 View;
+    alignas(16) glm::mat4 Projection;
+};
 struct Vertex {
     glm::vec3 Position;
     glm::vec3 Color;
@@ -49,6 +54,8 @@ struct Vertex {
 };
 class Application {
   public:
+    const std::string TEXTURE_PATH = "assets/textures/texture.jpg";
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 #ifdef DEBUG
     static constexpr bool EnableValidationLayers = true;
 #else
@@ -63,6 +70,8 @@ class Application {
     void Run();
 
   private:
+    void DrawFrame();
+
     void InitWindow();
     void InitVulkan();
     void Shutdown();
@@ -82,6 +91,20 @@ class Application {
     void CreateImageViews();
     void CreateDescriptorSetLayout();
     void CreateGraphicsPipeline();
+    void CreateCommandPool();
+    void CreateColorResources();
+    void CreateDepthResources();
+    void CreateTextureImage();
+    void CreateTextureImageView();
+    void CreateTextureSampler();
+    void CreateVertexBuffer();
+    void CreateIndexBuffer();
+    void CreateUniformBuffers();
+    void CreateDescriptorPool();
+    void CreateDescriptorSets();
+    void CreateCommandBuffers();
+    void RecordCommandBuffer(uint32_t imageIndex);
+    void CreateSyncObjects();
 
     std::vector<const char*> GetRequiredInstanceExtensions();
 
@@ -93,16 +116,56 @@ class Application {
 
     // Helpers
     bool IsPhysicalDeviceSuitable(const VkPhysicalDevice& device);
+
     VkImageView CreateImageView(
         const VkImage& image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
+
     std::vector<char> ReadFile(const std::string& filename);
+
     VkShaderModule CreateShaderModule(const std::vector<char>& code);
-    VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+
+    VkFormat FindSupportedFormat(
+        const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+
     VkFormat FindDepthFormat();
+
+    void TransitionImageLayout(const VkImage& image, VkImageLayout oldLayout, VkImageLayout newLayout,
+        VkAccessFlags2 srcAccessMask, VkAccessFlags2 dstAccessMask, VkPipelineStageFlags2 srcStageMask,
+        VkPipelineStageFlags2 dstStageMask, VkImageAspectFlags imageAspectFlags);
+
+    void TransitionImageLayout(VkCommandBuffer commandBuffer, const VkImage& image, VkImageLayout oldLayout,
+        VkImageLayout newLayout, uint32_t mipLevels);
+
+    std::pair<VkImage, VkDeviceMemory> CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels,
+        VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+        VkMemoryPropertyFlags properties);
+
+    std::pair<VkBuffer, VkDeviceMemory> CreateBuffer(
+        VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+
+    void CopyBuffer(VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize size);
+
+    void CopyBufferToImage(
+        VkCommandBuffer& commandBuffer, const VkBuffer& buffer, VkImage& image, uint32_t width, uint32_t height);
+
+    void GenerateMipmaps(VkCommandBuffer& commandBuffer, VkImage& image, VkFormat format, int32_t texWidth,
+        int32_t texHeight, uint32_t mipLevels);
+
+    VkCommandBuffer BeginSingleTimeCommands();
+
+    void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
+
+    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
+    VkSampleCountFlagBits GetMaxUsableSampleCount();
+
+    void UpdateUniformBuffer(uint32_t currentImage);
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData);
+
+    static void FramebufferResizeCallback(GLFWwindow* window, int width, int height);
 
   private:
     Window* m_Window = nullptr;
@@ -122,4 +185,85 @@ class Application {
     VkDescriptorSetLayout m_DescriptorSetLayout = nullptr;
     VkPipelineLayout m_PipelineLayout = nullptr;
     VkPipeline m_GraphicsPipeline = nullptr;
+    VkCommandPool m_CommandPool = nullptr;
+    std::vector<VkCommandBuffer> m_CommandBuffers;
+
+    uint32_t m_MipLevels = 0;
+    VkImage m_TextureImage = nullptr;
+    VkImageView m_TextureImageView = nullptr;
+    VkDeviceMemory m_TextureImageMemory = nullptr;
+    VkSampler m_TextureSampler = nullptr;
+    VkImage m_ColorImage = nullptr;
+    VkImageView m_ColorImageView = nullptr;
+    VkDeviceMemory m_ColorImageMemory = nullptr;
+    VkSampleCountFlagBits m_MsaaSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkImage m_DepthImage = nullptr;
+    VkImageView m_DepthImageView = nullptr;
+    VkDeviceMemory m_DepthImageMemory = nullptr;
+
+    VkBuffer m_VertexBuffer = nullptr;
+    VkDeviceMemory m_VertexBufferMemory = nullptr;
+    VkBuffer m_IndexBuffer = nullptr;
+    VkDeviceMemory m_IndexBufferMemory = nullptr;
+    std::vector<VkBuffer> m_UniformBuffers;
+    std::vector<VkDeviceMemory> m_UniformBuffersMemory;
+    std::vector<void*> m_UniformBuffersMapped;
+    VkDescriptorPool m_DescriptorPool = nullptr;
+    std::vector<VkDescriptorSet> m_DescriptorSets;
+
+    std::vector<VkSemaphore> m_PresentCompleteSemaphores;
+    std::vector<VkSemaphore> m_RenderFinishedSemaphores;
+    std::vector<VkFence> m_InFlightFences;
+
+    uint32_t m_FrameIndex = 0;
+    bool m_FramebufferResized = false;
+
+    // clang-format off
+std::vector<Vertex> m_Vertices = {
+    // Front (+Z)
+    {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+    // Back (-Z)
+    {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+    // Right (+X)
+    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+    // Left (-X)
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    {{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+    // Top (+Y)
+    {{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+    // Bottom (-Y)
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+};
+
+const std::vector<uint32_t> m_Indices = {
+     0,  1,  2,   2,  3,  0, // Front
+     4,  5,  6,   6,  7,  4, // Back
+     8,  9, 10,  10, 11,  8, // Right
+    12, 13, 14,  14, 15, 12, // Left
+    16, 17, 18,  18, 19, 16, // Top
+    20, 21, 22,  22, 23, 20, // Bottom
+};
+    // clang-format on
 };
